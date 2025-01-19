@@ -2,17 +2,44 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <cmath>
+#include <chrono>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-using namespace std; 
+using namespace std;
 
-float vertices[6] = {
+float triangleVertices[6] = {
     -0.5f, -0.5f,
      0.0f,  0.5f,
      0.5f, -0.5f
-};  
+};
+
+float squareVertices[8] = {
+    -0.5f, -0.5f,
+     0.5f, -0.5f,
+     0.5f,  0.5f,
+    -0.5f,  0.5f
+};
+
+float rectangleVertices[8] = {
+    -0.7f, -0.4f,
+     0.7f, -0.4f,
+     0.7f,  0.4f,
+    -0.7f,  0.4f
+};
+
+enum Views 
+{
+    View1 = 0,
+    View2,
+    View3,
+    MaxViews
+};
+
+// Animation state
+int currentView = 0;
 
 struct ShaderProgramSources
 {
@@ -107,7 +134,66 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
-int main()
+// Callback to handle key presses
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if(action == GLFW_PRESS)
+    {
+        if(key == GLFW_KEY_A)
+        {
+            currentView = (currentView - 1 + MaxViews) % MaxViews; // Cycle backward
+        }
+        else if(key == GLFW_KEY_D)
+        {
+            currentView = (currentView + 1) % MaxViews; // Cycle forward
+        }
+    }
+}
+
+// Function to render based on the current view
+void renderCurrentView(unsigned int shader, unsigned int buffer, unsigned int screenWidth, unsigned int screenHeight)
+{
+    // Get uniform locations
+    int screenSizeLocation = glGetUniformLocation(shader, "screenSize");
+    int objectColorLocation = glGetUniformLocation(shader, "objectColor");
+    float objectColor[4] = {0.5f, 1.0f, 1.0f, 1.0f};
+
+    glUseProgram(shader);
+    switch(currentView)
+    {
+        case View1:
+            // Render Triangle
+            glBindBuffer(GL_ARRAY_BUFFER, buffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(triangleVertices), triangleVertices, GL_STATIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            break;
+    
+        case View2:
+            glUniform2f(screenSizeLocation, screenWidth, screenHeight);
+            
+            // Render Square
+            glBindBuffer(GL_ARRAY_BUFFER, buffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(squareVertices), squareVertices, GL_STATIC_DRAW);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            break;
+            
+        case View3:
+            glUniform2f(screenSizeLocation, screenWidth, screenHeight);
+            glUniform4fv(objectColorLocation, 1, objectColor);
+
+            // Render Rectangle
+            glBindBuffer(GL_ARRAY_BUFFER, buffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(rectangleVertices), rectangleVertices, GL_STATIC_DRAW);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            break;
+
+        default:
+            break;
+    }
+}
+
+
+int main() 
 {
     if (!glfwInit())
     {
@@ -115,16 +201,15 @@ int main()
         return -1;
     }
 
-    glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 
-    GLFWwindow* window;
-    window = glfwCreateWindow(800, 600, "Hello World", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Prototype", NULL, NULL);
     if (window == NULL)
     {
         cout << "Failed to open GLFW window" << endl;
+        glfwTerminate();
         return -1;
     }
     glfwMakeContextCurrent(window);
@@ -136,44 +221,58 @@ int main()
     }
 
     glViewport(0, 0, 800, 600);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* win, int width, int height)
+    {
+        glViewport(0, 0, width, height);
+    });
 
-    //Give OpenGL the data - needs shader to know what to do with that data.
+    glfwSetKeyCallback(window, key_callback);
+
     unsigned int buffer;
     glGenBuffers(1, &buffer);
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    glBufferData(GL_ARRAY_BUFFER, 6 * sizeof(float), vertices, GL_STATIC_DRAW);
 
-    //Which attribute we are refering to
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
 
-    //relative path is either:
-    // - WD if debugging
-    // - .exe location
-    ShaderProgramSources source = ParseShader("D:\\OpenGL\\OpenGL\\res\\shaders\\Default.shader");
+    ShaderProgramSources defaultSource = ParseShader("D:\\OpenGL\\OpenGL\\res\\shaders\\Default.shader");
+    ShaderProgramSources rainbowSource = ParseShader("D:\\OpenGL\\OpenGL\\res\\shaders\\Rainbow.shader");
+    ShaderProgramSources reflectionSource = ParseShader("D:\\OpenGL\\OpenGL\\res\\shaders\\Reflection.shader");
 
-    // std::cout<<"VERTEX"<<std::endl;
-    // std::cout<<source.VertexSource<<std::endl;
+    unsigned int defaultShader = CreateShader(defaultSource.VertexSource, defaultSource.FragmentSource);
+    unsigned int rainbowShader = CreateShader(rainbowSource.VertexSource, rainbowSource.FragmentSource);
+    unsigned int reflectionShader = CreateShader(reflectionSource.VertexSource, reflectionSource.FragmentSource);
 
-    // std::cout<<"FRAGMENT"<<std::endl;
-    // std::cout<<source.FragmentSource<<std::endl;
-
-    unsigned int shader = CreateShader(source.VertexSource, source.FragmentSource);
-    glUseProgram(shader);
-
-    while(!glfwWindowShouldClose(window))
+    while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT);
-
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        
+        switch(currentView)
+        {
+            case View1:
+                renderCurrentView(defaultShader, buffer, 800, 600);
+                break;
+            
+            case View2:
+                renderCurrentView(rainbowShader, buffer, 800, 600);
+                break;
+            
+            case View3:
+                renderCurrentView(reflectionShader, buffer, 800, 600);
+                break;
+            
+            default:
+                break;
+        }
         glfwSwapBuffers(window);
-        glfwPollEvents();    
+        glfwPollEvents();
     }
 
-    glDeleteProgram(shader);
+    //Delete all shaders
+    glDeleteProgram(defaultShader);
+    glDeleteProgram(rainbowShader);
+    glDeleteProgram(reflectionShader);
 
+    glDeleteBuffers(1, &buffer);
     glfwTerminate();
     return 0;
 }
